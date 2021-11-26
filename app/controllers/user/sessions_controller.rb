@@ -56,17 +56,27 @@ class User::SessionsController < ApplicationController
     # AccessTokenの中にあるIDトークンを復号する
     id_token = OpenIDConnect::ResponseObject::IdToken.decode(access_token.id_token, jwk_json)
     # IDトークンの情報が改ざんされていないか検証する
-    id_token.verify!({
+    token_verify!(id_token, {
       issuer: "http://localhost:3780",
       nonce: session[:nonce],
       audience: "j0td7e4wZkgBlnV-Rh1m76XqkbEeqxsUchko2tAopp0"
     })
 
-    binding.pry
     # ユーザの情報を取得する
-    user_info = access_token.userinfo!
+    user_info = access_token.userinfo!.raw_attributes
 
     # 取得したユーザの情報とauthlogicのユーザを突き合わせて認証成功or認証失敗をtrue/falseで返す
+    resource = User.where(email: user_info[:email]).first_or_create
+
+    # binding.pry
+    @user_session = UserSession.new(resource)
+    # binding.pry
+
+    if @user_session.save
+      true
+    else
+      false
+    end
   end
 
   # OpenID Connectオブジェクトの生成
@@ -94,7 +104,7 @@ class User::SessionsController < ApplicationController
 
   # ランダムパスワード
   def set_password
-    session[:nonce] = SecureRandom.hex(16)
+    SecureRandom.hex(16)
   end
 
   def user_session_params
@@ -106,5 +116,26 @@ class User::SessionsController < ApplicationController
       OpenIDConnect.http_client.get_content('http://localhost:3780/oauth/discovery/keys')
     ).with_indifferent_access
     JSON::JWK::Set.new @jwks[:keys]
+  end
+
+
+  class InvalidToken < Exception; end
+  class ExpiredToken < InvalidToken; end
+  class InvalidIssuer < InvalidToken; end
+  class InvalidNonce < InvalidToken; end
+  class InvalidAudience < InvalidToken; end
+  def token_verify!(id_token, expected = {})
+
+    raise ExpiredToken.new('Invalid ID token: Expired token') unless id_token.exp.to_i > Time.now.to_i
+    raise InvalidIssuer.new('Invalid ID token: Issuer does not match') unless id_token.iss == expected[:issuer]
+    if id_token.nonce
+      raise InvalidNonce.new('Invalid ID Token: Nonce does not match') unless id_token.nonce == expected[:nonce]
+    end
+    # aud(ience) can be a string or an array of strings
+    unless Array(id_token.aud).include?(expected[:audience] || expected[:client_id])
+      raise InvalidAudience.new('Invalid ID token: Audience does not match')
+    end
+
+    true
   end
 end
