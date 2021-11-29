@@ -64,7 +64,7 @@ class User::SessionsController < ApplicationController
 
     # ユーザの情報を取得する
     user_info = access_token.userinfo!.raw_attributes
-
+    binding.pry
     # 取得したユーザの情報とauthlogicのユーザを突き合わせて認証成功or認証失敗をtrue/falseで返す
     resource = User.where(email: user_info[:email]).first_or_create
 
